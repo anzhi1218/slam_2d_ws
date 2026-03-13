@@ -1,0 +1,31 @@
+#laster_slam_2d 参数配置
+
+# TF 坐标系
+map_frame: map
+odom_frame: odom
+base_frame: base_link
+
+#地图参数
+map_x_min: -50.0                  # 地图边界 x 最小值(m)
+map_y_min: -50.0                  # 地图边界 y 最小值(m)
+map_x_max: 50.0                   # 地图边界 x 最大值(m)
+map_y_max: 50.0                   # 地图边界 y 最大值(m)
+map_resolution: 0.02               # 地图分辨率(m)
+
+
+# 激光点云滤波参数
+voxel_leaf_size: 0.02             # 体素滤波：体素边长(m)
+
+# ICP匹配相关参数
+icp_max_iterations: 20           # 最大迭代次数
+icp_max_correspondence_dist: 0.3  # 最大对应点距离(m)，缩小可限制 ICP 修正幅度
+icp_transform_epsilon: 1.0e-8     # 变换收敛阈值
+icp_euclidean_fitness_epsilon: 1.0e-6  # 欧氏距离收敛阈值
+icp_local_map_radius: 15.0        # ICP 使用的局部地图半径(m)，>0 仅用该半径内的点做配准以减轻重叠与漂移，<=0 用全图
+
+
+# CSM 粗匹配参数
+translation_search_range_cells: 2      # x/y 方向搜索半窗的栅格数
+translation_search_step_cells: 0.02          # 平移步长栅格数
+angular_step_deg: 0.5             # yaw 搜索步长 (deg)
+yaw_search_range_deg: 2  # yaw 搜索半窗 (deg)

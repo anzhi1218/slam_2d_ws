@@ -1,0 +1,25 @@
+<launch>
+
+  <arg name="use_data_file" default="true"/>
+  <arg name="data_file" default="$(find laster_slam_2d)/data/pose_log.txt"/>
+  <arg name="manual_replay" default="false"/>
+  <arg name="rviz" default="true"/>
+
+  <node pkg="laster_slam_2d"
+        type="laster_slam_2d"
+        name="laster_slam_2d"
+        output="screen"
+        if="$(arg use_data_file)">
+    <param name="data_file" value="$(arg data_file)"/>
+    <param name="manual_replay" value="$(arg manual_replay)"/>
+    <rosparam file="$(find laster_slam_2d)/config/params.yaml"
+              command="load"/>
+  </node>
+
+  <node pkg="rviz"
+        type="rviz"
+        name="rviz"
+        args="-d $(find laster_slam_2d)/config/laster_slam_2d.rviz"
+        if="$(arg rviz)"/>
+
+</launch> 

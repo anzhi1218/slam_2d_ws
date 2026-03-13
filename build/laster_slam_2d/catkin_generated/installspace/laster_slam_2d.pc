@@ -1,0 +1,8 @@
+prefix=/home/kanxk/laster_slam_2d_ws/install
+
+Name: laster_slam_2d
+Description: Description of laster_slam_2d
+Version: 1.4.2
+Cflags: -I${prefix}/include
+Libs: -L${prefix}/lib 
+Requires: nav_msgs sensor_msgs std_msgs visualization_msgs roscpp tf pcl_ros pcl_conversions
