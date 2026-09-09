@@ -1,7 +1,67 @@
 <launch>
 
   <arg name="use_data_file" default="true"/>
-  <arg name="data_file" default="$(find laster_slam_2d)/data/pose_log.txt"/>
+  <arg name="data_file" default="$(find laster_slam_2d)/../data/dataslam@slam:~/laster_slam_2d_ws-main$ roslaunch laster_slam_2d laser_slam_2d.launch
+... logging to /home/slam/.ros/log/04fbd700-ac47-11f1-82b8-a537b650ddb5/roslaunch-slam-10955.log
+Checking log directory for disk usage. This may take a while.
+Press Ctrl-C to interrupt
+Done checking log file disk usage. Usage is <1GB.
+
+started roslaunch server http://slam:40053/
+
+SUMMARY
+========
+
+PARAMETERS
+ * /laster_slam_2d/angular_step_deg: 0.5
+ * /laster_slam_2d/base_frame: base_link
+ * /laster_slam_2d/data_file: /home/slam/laster...
+ * /laster_slam_2d/icp_euclidean_fitness_epsilon: 1e-06
+ * /laster_slam_2d/icp_local_map_radius: 15.0
+ * /laster_slam_2d/icp_max_correspondence_dist: 0.3
+ * /laster_slam_2d/icp_max_iterations: 20
+ * /laster_slam_2d/icp_transform_epsilon: 1e-08
+ * /laster_slam_2d/manual_replay: False
+ * /laster_slam_2d/map_frame: map
+ * /laster_slam_2d/map_resolution: 0.02
+ * /laster_slam_2d/map_x_max: 50.0
+ * /laster_slam_2d/map_x_min: -50.0
+ * /laster_slam_2d/map_y_max: 50.0
+ * /laster_slam_2d/map_y_min: -50.0
+ * /laster_slam_2d/odom_frame: odom
+ * /laster_slam_2d/translation_search_range_cells: 2
+ * /laster_slam_2d/translation_search_step_cells: 0.02
+ * /laster_slam_2d/voxel_leaf_size: 0.02
+ * /laster_slam_2d/yaw_search_range_deg: 2
+ * /rosdistro: noetic
+ * /rosversion: 1.17.4
+
+NODES
+  /
+    laster_slam_2d (laster_slam_2d/laster_slam_2d)
+    rviz (rviz/rviz)
+
+auto-starting new master
+process[master]: started with pid [10986]
+ROS_MASTER_URI=http://localhost:11311
+
+setting /run_id to 04fbd700-ac47-11f1-82b8-a537b650ddb5
+process[rosout-1]: started with pid [11000]
+started core service [/rosout]
+process[laster_slam_2d-2]: started with pid [11007]
+process[rviz-3]: started with pid [11008]
+[ERROR] [1788955645.567825185]: laster_slam_2d: cannot open data file: /home/slam/laster_slam_2d_ws-main/src/laster_slam_2d/data/data.txt
+[ERROR] [1788955645.568111824]: laster_slam_2d: load data file failed
+[INFO] [1788955645.568131336]: laster_slam_2d: data file replay stopped.
+^C[rviz-3] killing on exit
+[laster_slam_2d-2] killing on exit
+QFileSystemWatcher::removePaths: list is empty
+QFileSystemWatcher::removePaths: list is empty
+[rosout-1] killing on exit
+[master] killing on exit
+shutting down processing monitor...
+... shutting down processing monitor complete
+done.txt"/>
   <arg name="manual_replay" default="false"/>
   <arg name="rviz" default="true"/>
 

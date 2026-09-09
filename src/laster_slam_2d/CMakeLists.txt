@@ -21,6 +21,7 @@ add_executable(laster_slam_2d
   src/predicted_process.cpp
   src/laser_process.cpp
   src/mapping.cpp
+  src/linear_fitting.cpp
 )
 target_link_libraries(laster_slam_2d ${Boost_LIBRARIES} ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 if(catkin_EXPORTED_TARGETS)

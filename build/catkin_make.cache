@@ -1,2 +1,0 @@
-laster_slam_2d
--DCATKIN_DEVEL_PREFIX=/home/kanxk/laster_slam_2d_ws/devel -DCMAKE_INSTALL_PREFIX=/home/kanxk/laster_slam_2d_ws/install -G Unix Makefiles

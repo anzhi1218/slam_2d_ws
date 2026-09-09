@@ -3,149 +3,196 @@
 #include <cmath>
 #include <iostream>
 
-
-LineFitting::LineFitting(int min_line_length, int line_length_threshold) :min_line_length_(min_line_length), line_length_threshold_(line_length_threshold) {
-
+LineFitting::LineFitting(int min_line_length, int line_length_threshold)
+	: min_line_length_(min_line_length), line_length_threshold_(line_length_threshold) {
+	initNearbyOffsets();
 }
 
-
-double LineFitting::distance(const Eigen::Vector3f& point_1, const Eigen::Vector3f& point_2) const {
-    const double dx = point_1.x() - point_2.x();
-    const double dy = point_1.y() - point_2.y();
-    return dx * dx + dy * dy; 
-}
-
-std::vector<int> LineFitting::regionQuery(int idx, const std::vector<Eigen::Vector3f>& points) const {
-    
-	std::vector<int> neighbors;
-    
-    const double eps2 = 0.2 * 0.2;
-    
-    for (int i = 0; i < points.size(); ++i) {
-        if (distance(points[idx], points[i]) <= eps2) {
-            neighbors.push_back(i);
-        }
-    }
-	
-    return neighbors;
-}
-
-void LineFitting::removePointsNearOrigin(std::vector<Eigen::Vector3f>& cloud, double radius) {
-
-	double r2 = radius * radius;
-	std::vector<Eigen::Vector3f> filtered;
-	filtered.reserve(cloud.size());
-
-	for (int i = 0; i < cloud.size(); ++i) {
-		const Eigen::Vector3f& pt = cloud[i];
-		double dist2 = pt.x()*pt.x() + pt.y()*pt.y();
-		if (dist2 >= r2) {
-			filtered.push_back(pt);
+void LineFitting::initNearbyOffsets() {
+	nearby_offsets_.clear();
+	nearby_offsets_.reserve(9);
+	for (int dx = -1; dx <= 1; ++dx) {
+		for (int dy = -1; dy <= 1; ++dy) {
+			nearby_offsets_.push_back({ dx, dy });
 		}
 	}
-
-	cloud.swap(filtered);
 }
 
-void LineFitting::runLineExtraction(const std::vector<Eigen::Vector3f>& cloud) {
+void LineFitting::buildGrid(const std::vector<Eigen::Vector2f>& points) {
+	grid_.clear();
+
+	const int n = static_cast<int>(points.size());
+
+	for (int i = 0; i < n; ++i) {
+		const float x = points[i].x();
+		const float y = points[i].y();
+
+		GridKey key{
+			static_cast<int>(std::round(x / eps_)),
+			static_cast<int>(std::round(y / eps_))
+		};
+
+		grid_[key].push_back(i);
+	}
+}
+
+void LineFitting::regionQuery(int idx, const std::vector<Eigen::Vector2f>& points,
+	std::vector<int>& neighbors) {
+	neighbors.clear();
+
+	const Eigen::Vector2f& pt = points[idx];
+	const float cell_size_inv = 1.0f / eps_;
+	const int cx = static_cast<int>(std::round(pt.x() * cell_size_inv));
+	const int cy = static_cast<int>(std::round(pt.y() * cell_size_inv));
+	const float eps2 = eps_ * eps_;
+	const float px = pt.x();
+	const float py = pt.y();
+
+	for (const GridKey& offset : nearby_offsets_) {
+
+		std::unordered_map<GridKey, std::vector<int>, GridKeyHash>::const_iterator it =
+			grid_.find(GridKey{ cx + offset.x, cy + offset.y });
+
+		if (it == grid_.end()) continue;
+
+		const std::vector<int>& cell_points = it->second;
+		const int cell_size = static_cast<int>(cell_points.size());
+		for (int k = 0; k < cell_size; ++k) {
+			const int ni = cell_points[k];
+			if (ni == idx) continue;
+
+			const float dx2 = px - points[ni].x();
+			const float dy2 = py - points[ni].y();
+
+			if (dx2 * dx2 + dy2 * dy2 <= eps2) {
+				neighbors.push_back(ni);
+			}
+		}
+	}
+}
+
+void LineFitting::removePointsNearOrigin(std::vector<Eigen::Vector2f>& cloud) {
+
+	const float radius = 0.2f;
+	const float r2 = radius * radius;
+
+	int idx = 0;
+	for (int i = 0; i < static_cast<int>(cloud.size()); ++i) {
+
+		const float dist2 = cloud[i].x() * cloud[i].x() + cloud[i].y() * cloud[i].y();
+
+		if (dist2 >= r2) {
+			if (idx != i) {
+				cloud[idx] = cloud[i];
+			}
+			++idx;
+		}
+	}
+	cloud.resize(idx);
+}
+
+void LineFitting::runLineExtraction(const std::vector<Eigen::Vector2f>& cloud) {
 
 	lines_.clear();
 	clusters_.clear();
-  
-	//1.点云预处理
-	std::vector<Eigen::Vector3f> filtered_cloud = cloud;
-	const double radius_near_origin = 0.2;
-	removePointsNearOrigin(filtered_cloud, radius_near_origin);
 
-	if (filtered_cloud.size() < min_line_length_) {
+	// 1. 点云预处理
+	std::vector<Eigen::Vector2f> filtered_cloud = cloud;
+	removePointsNearOrigin(filtered_cloud);
+
+	if (filtered_cloud.size() < static_cast<size_t>(min_line_length_)) {
 		return;
 	}
-    
-	//2.聚类
+
+	// 2. 先计算点云的中心
+	center_x_ = 0.0f;
+	center_y_ = 0.0f;
+	for (const auto& pt : cloud) {
+		center_x_ += pt.x();
+		center_y_ += pt.y();
+	}
+	center_x_ /= static_cast<float>(cloud.size());
+	center_y_ /= static_cast<float>(cloud.size());
+
+	// 3. DBSCAN 聚类
 	std::vector<int> labels;
 	dbscan(filtered_cloud, labels);
-    
-	//3.提取聚类
+
+	// 4. 提取聚类
 	extractClusters(filtered_cloud, labels);
-    
 
-	//4.直线拟合
-	for (int i = 0; i < clusters_.size(); ++i) {
-		
-		std::vector<Eigen::Vector3f>& cluster = clusters_[i];
-
-		std::cout << "LineFitting: Cluster[%d] points= " << cluster.size() << std::endl;
-
-		fitLines(cluster);
+	// 5. 直线拟合
+	for (auto& cluster : clusters_) {
+		if (cluster.size() >= static_cast<size_t>(min_line_length_)) {
+			fitLines(cluster);
+		}
 	}
 
-    //5.判断是否退化
+	// 6. 退化检测
 	is_degradation_ = checkDegradationByLineAngles();
 }
 
 
-void LineFitting::dbscan(const std::vector<Eigen::Vector3f>& points, std::vector<int>& labels) {
-    
+void LineFitting::dbscan(const std::vector<Eigen::Vector2f>& points, std::vector<int>& labels) {
 
-	const int n = points.size();
+	const int n = static_cast<int>(points.size());
 	labels.assign(n, -2);
 	int clusterId = 0;
 
+	// Step 1: Build spatial grid
+	buildGrid(points);
+
+	const int minPts = 8;
+
 	for (int i = 0; i < n; ++i) {
 
-		if (labels[i] != -2) {
-			continue;
-		}
-        
-		//查询当前点附近邻域的点
-		std::vector<int> neighbors = regionQuery(i, points);
-		if (neighbors.size() < 8) { //小于最小聚类的点数
+		if (labels[i] != -2) continue;
 
+		// Step 2: Region query
+		regionQuery(i, points, region_query_);
+
+		if (static_cast<int>(region_query_.size()) < minPts) {
 			labels[i] = -1;
 			continue;
 		}
 
 		labels[i] = clusterId;
-		std::vector<int> seedQueue = neighbors;
-		seedQueue.erase(std::remove(seedQueue.begin(), seedQueue.end(), i), seedQueue.end());
-        
-		//扩展簇
-		for (int j = 0; j < seedQueue.size(); ++j) {
+		seedQueue.clear();
 
-			const int idx = seedQueue[j];
+		for (int nb : region_query_) {
+			if (labels[nb] == -2) {
+				labels[nb] = clusterId;
+				seedQueue.push_back(nb);
+			}
+		}
 
-			if (labels[idx] == -2) {
+		// Step 3: Seed queue expansion
+		for (size_t j = 0; j < seedQueue.size(); ++j) {
+			const int currentIdx = seedQueue[j];
 
-				labels[idx] = clusterId;
-				const std::vector<int> newNeighbors = regionQuery(idx, points);
+			regionQuery(currentIdx, points, region_query_);
 
-				if (newNeighbors.size() >= 8) {
-
-					for (int nb : newNeighbors) {
-						if (std::find(seedQueue.begin(), seedQueue.end(), nb) == seedQueue.end() && nb != idx) {
-							seedQueue.push_back(nb);
-						}
+			if (static_cast<int>(region_query_.size()) >= minPts) {
+				for (int nb : region_query_) {
+					if (labels[nb] == -2) {
+						labels[nb] = clusterId;
+						seedQueue.push_back(nb);
 					}
 				}
-			}
-			else if (labels[idx] == -1) {
-
-				labels[idx] = clusterId;
 			}
 		}
 
 		++clusterId;
 	}
 
+	// Step 4: Clear grid
+	grid_.clear();
 }
 
 
-void LineFitting::extractClusters(const std::vector<Eigen::Vector3f>& points,
-	
+void LineFitting::extractClusters(const std::vector<Eigen::Vector2f>& points,
 	const std::vector<int>& labels) {
 	int max_label = -1;
-    
-	//找到最大的label
 	for (int label : labels) {
 		if (label > max_label) {
 			max_label = label;
@@ -157,9 +204,8 @@ void LineFitting::extractClusters(const std::vector<Eigen::Vector3f>& points,
 	}
 
 	clusters_.resize(max_label + 1);
-    
-	//提取簇
-	for (int i = 0; i < points.size(); ++i) {
+
+	for (int i = 0; i < static_cast<int>(points.size()); ++i) {
 		const int label = labels[i];
 		if (label >= 0) {
 			clusters_[label].push_back(points[i]);
@@ -168,163 +214,171 @@ void LineFitting::extractClusters(const std::vector<Eigen::Vector3f>& points,
 }
 
 
-void LineFitting::fitLines(std::vector<Eigen::Vector3f>& points_cloud) {
+void LineFitting::fitLines(std::vector<Eigen::Vector2f>& points_cloud) {
 
-
-	if (points_cloud.size() < min_line_length_) {
+	if (points_cloud.size() < static_cast<size_t>(min_line_length_)) {
 		return;
 	}
 
-	sortClusterAlongPrincipalAxis(points_cloud);
+	//sortClusterAlongPrincipalAxis(points_cloud);
+
+	if (points_cloud.size() > 1) {
+		std::sort(points_cloud.begin(), points_cloud.end(),
+			[this](const Eigen::Vector2f& a, const Eigen::Vector2f& b) {
+				float angle_a = std::atan2(a.y() - center_y_, a.x() - center_x_);
+				float angle_b = std::atan2(b.y() - center_y_, b.x() - center_x_);
+				return angle_a < angle_b;
+			});
+	}
 
 	std::vector<int> mark_index;
 	markIndexDetection(points_cloud, mark_index);
 
-	for (int i = 0; i < mark_index.size() - 1; ++i) {
-
+	for (size_t i = 0; i + 1 < mark_index.size(); ++i) {
 		const int front_index_id = mark_index[i];
 		const int back_index_id = mark_index[i + 1];
+		const int seg_size = back_index_id - front_index_id;
 
-		std::vector<Eigen::Vector3f> segment_points;
-		segment_points.reserve(back_index_id - front_index_id);
-		for (int j = front_index_id; j < back_index_id; ++j) {
-			segment_points.push_back(points_cloud[j]);
-		}
-
-		if (segment_points.size() < min_line_length_) {
+		if (seg_size < min_line_length_) {
 			continue;
 		}
 
-		double k = 0.0;
-		double b = 0.0;
+		float k = 0.0f, b = 0.0f;
 		bool k_exist = false;
+
+		std::vector<Eigen::Vector2f> segment_points(points_cloud.begin() + front_index_id,
+			points_cloud.begin() + back_index_id);
+
 		if (!fittingLine2D(segment_points, k, b, k_exist)) {
 			continue;
 		}
 
 		FittedLine line;
-		line.k_ = static_cast<float>(k);
-		line.b_ = static_cast<float>(b);
+		line.k_ = k;
+		line.b_ = b;
 		line.k_is_exist = k_exist;
 		line.points_ = std::move(segment_points);
 
-		lines_.push_back(line);
-	}
-}
+		// 计算线段的端点坐标
+		float min_x = line.points_[0].x();
+		float max_x = min_x;
+		float min_y = line.points_[0].y();
+		float max_y = min_y;
 
-void LineFitting::sortClusterAlongPrincipalAxis(std::vector<Eigen::Vector3f>& cluster) {
+		for (const auto& pt : line.points_) {
+			const float x = pt.x();
+			const float y = pt.y();
+			if (x < min_x) min_x = x;
+			else if (x > max_x) max_x = x;
+			if (y < min_y) min_y = y;
+			else if (y > max_y) max_y = y;
+		}
 
-
-	double cx = 0.0;
-	double cy = 0.0;
-
-	for (const auto& pt : cluster) {
-		cx += static_cast<double>(pt.x());
-		cy += static_cast<double>(pt.y());
-	}
-
-	cx /= static_cast<double>(cluster.size());
-	cy /= static_cast<double>(cluster.size());
-
-	double cxx = 0.0;
-	double cxy = 0.0;
-	double cyy = 0.0;
-	for (const Eigen::Vector3f& pt : cluster) {
-		const double dx = static_cast<double>(pt.x()) - cx;
-		const double dy = static_cast<double>(pt.y()) - cy;
-		cxx += dx * dx;
-		cxy += dx * dy;
-		cyy += dy * dy;
-	}
-
-	const double trace = cxx + cyy;
-	const double det = cxx * cyy - cxy * cxy;
-	const double disc = std::sqrt(std::max(0.0, trace * trace * 0.25 - det));
-	const double lambda1 = trace * 0.5 + disc;
-
-	double vx = cxy;
-	double vy = lambda1 - cxx;
-	double norm = std::sqrt(vx * vx + vy * vy);
-
-	if (norm < 1e-9) {
-		if (cxx >= cyy) {
-			vx = 1.0; vy = 0.0;
+		float p1_x, p1_y, p2_x, p2_y;
+		if (k_exist) {
+			p1_x = min_x; p1_y = k * min_x + b;
+			p2_x = max_x; p2_y = k * max_x + b;
 		}
 		else {
-			vx = 0.0; vy = 1.0;
+			p1_x = b; p1_y = min_y;
+			p2_x = b; p2_y = max_y;
 		}
-	}
-	else {
-		vx /= norm;
-		vy /= norm;
-	}
 
-	std::sort(cluster.begin(), cluster.end(), [cx, cy, vx, vy](const Eigen::Vector3f& point1, const Eigen::Vector3f& point2) {
+		const Eigen::Vector2f& front_pt = line.points_.front();
+		const Eigen::Vector2f& back_pt = line.points_.back();
+		float start_x, start_y, end_x, end_y;
 
-		const double proj1 = (static_cast<double>(point1.x()) - cx) * vx + (static_cast<double>(point1.y()) - cy) * vy;
-		const double proj2 = (static_cast<double>(point2.x()) - cx) * vx + (static_cast<double>(point2.y()) - cy) * vy;
-		return proj1 < proj2;
-	});
+		pointToLineSubpoint(front_pt.x(), front_pt.y(), p1_x, p1_y, p2_x, p2_y, start_x, start_y);
+		pointToLineSubpoint(back_pt.x(), back_pt.y(), p1_x, p1_y, p2_x, p2_y, end_x, end_y);
+
+		line.p0_ = Eigen::Vector2f(start_x, start_y);
+		line.p1_ = Eigen::Vector2f(end_x, end_y);
+
+		lines_.push_back(std::move(line));
+	}
 }
 
-void LineFitting::markIndexDetection(const std::vector<Eigen::Vector3f>& pointcloud, std::vector<int>& mark_index) const {
+void LineFitting::sortClusterAlongPrincipalAxis(std::vector<Eigen::Vector2f>& cluster) {
 
+	if (cluster.size() <= 1) {
+		return;
+	}
 
+	float cx = 0.0f;
+	float cy = 0.0f;
+	for (const auto& pt : cluster) {
+		cx += pt.x();
+		cy += pt.y();
+	}
+
+	cx /= static_cast<float>(cluster.size());
+	cy /= static_cast<float>(cluster.size());
+
+	std::sort(cluster.begin(), cluster.end(),
+		[cx, cy](const Eigen::Vector2f& a, const Eigen::Vector2f& b) {
+			float angle_a = std::atan2(a.y() - cy, a.x() - cx);
+			float angle_b = std::atan2(b.y() - cy, b.x() - cx);
+			return angle_a < angle_b;
+		});
+}
+
+void LineFitting::markIndexDetection(const std::vector<Eigen::Vector2f>& pointcloud,
+	std::vector<int>& mark_index) const {
 	std::vector<int> mark_index_t;
 	mark_index_t.push_back(0);
 	mark_index_t.push_back(static_cast<int>(pointcloud.size()) - 1);
 
-	while (true) {
+	const float split_thred = 0.12f;
+	const float split_thred_sq = split_thred * split_thred;
 
+	while (true) {
 		std::vector<int> cur_mark_index;
 
-		for (int i = 0; i < static_cast<int>(mark_index_t.size()) - 1; ++i) {
-
+		for (size_t i = 0; i + 1 < mark_index_t.size(); ++i) {
 			const int front_index_id = mark_index_t[i];
 			const int back_index_id = mark_index_t[i + 1];
-
 
 			if (back_index_id <= front_index_id + 1) {
 				continue;
 			}
 
-			const double p1_x = static_cast<double>(pointcloud[front_index_id].x());
-			const double p1_y = static_cast<double>(pointcloud[front_index_id].y());
-			const double p2_x = static_cast<double>(pointcloud[back_index_id].x());
-			const double p2_y = static_cast<double>(pointcloud[back_index_id].y());
+			const float p1_x = pointcloud[front_index_id].x();
+			const float p1_y = pointcloud[front_index_id].y();
+			const float p2_x = pointcloud[back_index_id].x();
+			const float p2_y = pointcloud[back_index_id].y();
 
-			const double seg_dx = p2_x - p1_x;
-			const double seg_dy = p2_y - p1_y;
-			const double seg_len_sq = seg_dx * seg_dx + seg_dy * seg_dy;
+			const float seg_dx = p2_x - p1_x;
+			const float seg_dy = p2_y - p1_y;
+			const float seg_len_sq = seg_dx * seg_dx + seg_dy * seg_dy;
 
-			if (seg_len_sq < 1e-12) {
+			if (seg_len_sq < 1e-12f) {
 				continue;
 			}
 
-			double max_dist2 = 0.0;
+			float max_dist_sq = 0.0f;
 			int max_dist_index = front_index_id + 1;
 
 			for (int j = front_index_id + 1; j < back_index_id; ++j) {
-				const double point_x = static_cast<double>(pointcloud[j].x());
-				const double point_y = static_cast<double>(pointcloud[j].y());
+				const float point_x = pointcloud[j].x();
+				const float point_y = pointcloud[j].y();
 
-				const double A = point_x - p1_x;
-				const double B = point_y - p1_y;
-				const double param = (A * seg_dx + B * seg_dy) / seg_len_sq;
+				const float A = point_x - p1_x;
+				const float B = point_y - p1_y;
+				const float param = (A * seg_dx + B * seg_dy) / seg_len_sq;
 
-				const double line_pt_x = p1_x + param * seg_dx;
-				const double line_pt_y = p1_y + param * seg_dy;
+				const float line_pt_x = p1_x + param * seg_dx;
+				const float line_pt_y = p1_y + param * seg_dy;
 
-				const double dist2 = (line_pt_x - point_x) * (line_pt_x - point_x) + (line_pt_y - point_y) * (line_pt_y - point_y);
+				const float dist_sq = (line_pt_x - point_x) * (line_pt_x - point_x) +
+					(line_pt_y - point_y) * (line_pt_y - point_y);
 
-				if (dist2 > max_dist2) {
-					max_dist2 = dist2;
+				if (dist_sq > max_dist_sq) {
+					max_dist_sq = dist_sq;
 					max_dist_index = j;
 				}
 			}
 
-			const double MaxDistThreshold2 = 0.12*0.12;
-			if (max_dist2 > MaxDistThreshold2) { 
+			if (max_dist_sq > split_thred_sq) {
 				cur_mark_index.push_back(max_dist_index);
 			}
 		}
@@ -340,100 +394,117 @@ void LineFitting::markIndexDetection(const std::vector<Eigen::Vector3f>& pointcl
 	mark_index = std::move(mark_index_t);
 }
 
-bool LineFitting::fittingLine2D(const std::vector<Eigen::Vector3f>& cloud,
-	                            double& k, double& b, bool& k_exist) const {
+bool LineFitting::fittingLine2D(const std::vector<Eigen::Vector2f>& cloud,
+	float& k, float& b, bool& k_exist) const {
 
 	const int n = static_cast<int>(cloud.size());
 
 	if (n == 0) {
-		k = 0.0;
-		b = 0.0;
+		k = 0.0f;
+		b = 0.0f;
 		k_exist = false;
 		return false;
 	}
 
-	double sum_x = 0.0;
-	double sum_y = 0.0;
-	double sum_xx = 0.0;
-	double sum_xy = 0.0;
-	
+	float sum_x = 0.0f;
+	float sum_y = 0.0f;
+	float sum_xx = 0.0f;
+	float sum_xy = 0.0f;
 
-	for (int i = 0; i < n; ++i) {
-		const double x = static_cast<double>(cloud[i].x());
-		const double y = static_cast<double>(cloud[i].y());
+	for (const auto& pt : cloud) {
+		const float x = pt.x();
+		const float y = pt.y();
 		sum_x += x;
 		sum_y += y;
 		sum_xx += x * x;
 		sum_xy += x * y;
 	}
 
-	const double mean_x = sum_x / n;
+	const float mean_x = sum_x / static_cast<float>(n);
+	const float var_x = sum_xx / static_cast<float>(n) - mean_x * mean_x;
 
-	const double var_x = sum_xx / n - mean_x * mean_x;
-
-	if (var_x < 0.001) {
+	if (var_x < 0.001f) {
 		k_exist = false;
 		b = mean_x;
 		return true;
 	}
 
-	const double denom = static_cast<double>(n) * sum_xx - sum_x * sum_x;
-	
-	k = (static_cast<double>(n) * sum_xy - sum_x * sum_y) / denom;
+	const float denom = static_cast<float>(n) * sum_xx - sum_x * sum_x;
+	k = (static_cast<float>(n) * sum_xy - sum_x * sum_y) / denom;
 	b = (sum_xx * sum_y - sum_xy * sum_x) / denom;
 	k_exist = true;
 
 	return true;
 }
 
+void LineFitting::pointToLineSubpoint(const float point_x, const float point_y,
+	const float p1_x, const float p1_y,
+	const float p2_x, const float p2_y,
+	float& line_pt_x, float& line_pt_y) {
+	const float A = point_x - p1_x;
+	const float B = point_y - p1_y;
+
+	const float C = p2_x - p1_x;
+	const float D = p2_y - p1_y;
+
+	const float denom = C * C + D * D;
+
+	if (std::abs(denom) < 1e-12f) {
+		line_pt_x = p1_x;
+		line_pt_y = p1_y;
+		return;
+	}
+
+	const float param = (A * C + B * D) / denom;
+
+	line_pt_x = p1_x + param * C;
+	line_pt_y = p1_y + param * D;
+}
+
 bool LineFitting::checkDegradationByLineAngles() {
 
 	std::vector<FittedLine> valid_lines;
-	for (int i = 0; i < lines_.size(); ++i) {
-		if (lines_[i].points_.size() >= line_length_threshold_) {
-			valid_lines.push_back(lines_[i]);
+
+	for (const auto& line : lines_) {
+		if (line.points_.size() >= static_cast<size_t>(line_length_threshold_)) {
+			valid_lines.push_back(line);
 		}
 	}
-
-	std::cout << "LineFitting: valid_lines size = " << valid_lines.size() << std::endl;
-
 
 	if (valid_lines.size() < 2) {
 		return true;
 	}
 
-	for (int i = 0; i < valid_lines.size(); ++i) {
-		for (int j = i + 1; j < valid_lines.size(); ++j) {
-
-			double angle_i;
+	for (size_t i = 0; i < valid_lines.size(); ++i) {
+		for (size_t j = i + 1; j < valid_lines.size(); ++j) {
+			float angle_i;
 			if (valid_lines[i].k_is_exist) {
 				angle_i = std::atan(valid_lines[i].k_);
-
-				if (angle_i < 0.0) {
+				if (angle_i < 0.0f) {
 					angle_i += M_PI;
 				}
 			}
 			else {
-				angle_i = M_PI / 2.0;
+				angle_i = M_PI / 2.0f;
 			}
 
-			double angle_j;
+			float angle_j;
 			if (valid_lines[j].k_is_exist) {
 				angle_j = std::atan(valid_lines[j].k_);
-				if (angle_j < 0.0) {
+				if (angle_j < 0.0f) {
 					angle_j += M_PI;
 				}
 			}
 			else {
-				angle_j = M_PI / 2.0;
+				angle_j = M_PI / 2.0f;
 			}
 
-			double diff = std::fabs(angle_i - angle_j);
-			if (diff > M_PI / 2.0) {
+			float diff = std::fabs(angle_i - angle_j);
+			if (diff > M_PI / 2.0f) {
 				diff = M_PI - diff;
 			}
 
-			if ((diff * 180.0 / M_PI) > 20.0) {
+			if (diff * (180.0f / M_PI) > 20.0f) {
 				return false;
 			}
 		}
