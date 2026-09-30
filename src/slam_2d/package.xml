@@ -1,0 +1,37 @@
+<package>
+  <name>slam_2d</name>
+  <version>1.4.2</version>
+  <description>
+    slam_2d: 基于激光雷达与轮式里程计先验位姿的 2D 激光 SLAM。
+    在线订阅 /scan 与 /odom（可由 rosbag play 回放数据集驱动），
+    使用 ICP + CSM 进行帧间配准，可创建 2D 占据栅格地图。
+  </description>
+  <author>Brian Gerkey (openslam 原作者), slam_2d 修改</author>
+  <maintainer email="ros-orphaned-packages@googlegroups.com">ROS Orphaned Package Maintainers</maintainer>
+  <license>BSD</license>
+  <license>Apache 2.0</license>
+  <url>http://wiki.ros.org/slam_2d</url>
+
+  <buildtool_depend version_gte="0.5.68">catkin</buildtool_depend>
+
+  <build_depend>nav_msgs</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>std_srvs</build_depend>
+  <build_depend>pcl_conversions</build_depend>
+  <build_depend>roscpp</build_depend>
+  <build_depend>roslib</build_depend>
+  <build_depend>tf</build_depend>
+
+  <run_depend>nav_msgs</run_depend>
+  <run_depend>sensor_msgs</run_depend>
+  <run_depend>geometry_msgs</run_depend>
+  <run_depend>std_srvs</run_depend>
+  <run_depend>pcl_conversions</run_depend>
+  <run_depend>roscpp</run_depend>
+  <run_depend>roslib</run_depend>
+  <run_depend>tf</run_depend>
+  <run_depend>rosbag</run_depend>
+  <run_depend>rviz</run_depend>
+  <test_depend>rostest</test_depend>
+</package>

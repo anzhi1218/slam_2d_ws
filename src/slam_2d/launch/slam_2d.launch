@@ -1,0 +1,28 @@
+<launch>
+  <!--
+    slam_2d 在线建图：节点订阅 scan_topic/odom_topic（默认 /scan、/odom）。
+    数据来源二选一：
+      1) 另开终端播放数据包（推荐，可调整播放速率配合建图速度）：
+         rosbag play -r 0.5 <工作空间>/src/slam_2d/data/GP-SLAM-2D_dataset/Yongqian_data_2019-05-29-13-12-39.bag
+      2) 直接由本 launch 播放数据包：roslaunch slam_2d slam_2d.launch use_bag:=true
+  -->
+
+  <arg name="use_rviz" default="true"/>
+  <arg name="use_bag" default="false"/>
+  <arg name="bag_file" default="$(find slam_2d)/data/GP-SLAM-2D_dataset/Yongqian_data_2019-05-29-13-12-39.bag"/>
+  <arg name="rate" default="1.0"/>
+
+  <!-- 参数加载到节点私有命名空间 -->
+  <rosparam file="$(find slam_2d)/config/params.yaml" command="load" ns="slam_2d"/>
+
+  <!-- SLAM 节点：订阅 /scan 与 /odom -->
+  <node pkg="slam_2d" type="slam_2d" name="slam_2d" output="screen"/>
+
+  <!-- RViz 可视化 -->
+  <node if="$(arg use_rviz)" pkg="rviz" type="rviz" name="rviz"
+        args="-d $(find slam_2d)/config/slam_2d.rviz"/>
+
+  <!-- 可选：由 launch 直接回放数据包 -->
+  <node if="$(arg use_bag)" pkg="rosbag" type="play" name="rosbag_play" output="screen"
+        args="--rate $(arg rate) $(arg bag_file)"/>
+</launch>

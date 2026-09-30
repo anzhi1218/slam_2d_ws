@@ -1,0 +1,53 @@
+#slam_2d 参数配置
+
+# 输入话题（rosbag play 回放或实际传感器）
+scan_topic: /scan
+odom_topic: /odom
+
+# 订阅队列长度
+scan_queue_size: 30        # 激光订阅队列
+odom_queue_size: 100       # 里程计订阅队列（保持原始频率供预积分使用）
+
+# 里程计（先验位姿）预处理：预积分 + 激光时间对齐
+odom_buffer_size: 200            # 预处理位姿链缓存条数(40Hz 约 5s)
+odom_max_linear_speed: 8.0       # 最大线速度(m/s)，超限视为跳变剔除（本数据集实测最大约 6.2）
+odom_max_angular_speed: 180.0    # 最大角速度(deg/s)，超限视为跳变剔除（本数据集实测最大约 68）
+odom_smooth_alpha: 1.0           # 增量速度低通系数(0,1]，1=不平滑
+
+# TF 坐标系
+map_frame: map
+odom_frame: odom
+base_frame: base_link
+
+#地图参数
+map_x_min: -50.0                  # 地图边界 x 最小值(m)
+map_y_min: -50.0                  # 地图边界 y 最小值(m)
+map_x_max: 50.0                   # 地图边界 x 最大值(m)
+map_y_max: 50.0                   # 地图边界 y 最大值(m)
+map_resolution: 0.05                # 地图分辨率(m)
+
+
+# ICP匹配相关参数
+icp_max_iterations: 20           # 最大迭代次数
+icp_max_correspondence_dist: 0.3  # 最大对应点距离(m)，缩小可限制 ICP 修正幅度
+icp_transform_epsilon: 1.0e-8     # 变换收敛阈值
+icp_euclidean_fitness_epsilon: 1.0e-6  # 欧氏距离收敛阈值
+icp_fitness_score_threshold: 0.001  # 拟合分数大于该值时用 CSM 粗匹配；调大(如 0.05~0.3)可减少 CSM 触发、加快处理
+
+
+# CSM 粗匹配参数
+translation_search_range_cells: 2      # x/y 方向搜索半窗的栅格数
+translation_search_step_cells: 0.02          # 平移步长(m)，参数名保留兼容
+angular_step_deg: 0.5             # yaw 搜索步长 (deg)
+yaw_search_range_deg: 2  # yaw 搜索半窗 (deg)
+
+# 退化检测（直线拟合）
+line_fitting_min_points: 5             # 退化检测：聚类/拟合最少点数
+line_fitting_line_length_threshold: 10 # 退化检测：计为有效直线的最少点数（有效直线不足 2 条视为退化）
+
+# 地图保存（PGM + YAML，兼容 ROS1 map_server 与 Nav2 nav2_map_server）
+map_save_file: ""                # 保存路径前缀（不含扩展名）；空 = <本包目录>/maps/map
+save_map_on_shutdown: true       # Ctrl-C 退出节点时自动保存地图
+map_save_trim_margin: 1.0        # 保存时裁剪到已知区域再外扩的边距(m)
+map_save_occupied_thresh: 0.65   # PGM 黑（占据）判定阈值
+map_save_free_thresh: 0.196      # PGM 白（空闲）判定阈值
