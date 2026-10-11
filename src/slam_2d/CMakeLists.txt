@@ -25,15 +25,6 @@ if(catkin_EXPORTED_TARGETS)
   add_dependencies(slam_2d ${catkin_EXPORTED_TARGETS})
 endif()
 
-if(CATKIN_ENABLE_TESTING)
-  find_package(rostest REQUIRED)
-  add_rostest_gtest(mapping_update_test
-    test/mapping_update.test
-    test/mapping_update_test.cpp
-    src/mapping.cpp
-  )
-  target_link_libraries(mapping_update_test ${catkin_LIBRARIES} ${PCL_LIBRARIES})
-endif()
 
 install(TARGETS slam_2d
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}

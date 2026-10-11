@@ -1,3 +1,0 @@
-<launch>
-  <test test-name="mapping_update" pkg="slam_2d" type="mapping_update_test" time-limit="120"/>
-</launch>

@@ -1,0 +1,3 @@
+[submodule "src/slam_2d/data/GP-SLAM-2D_dataset"]
+	path = src/slam_2d/data/GP-SLAM-2D_dataset
+	url = https://github.com/RuanJY/GP-SLAM-2D_dataset.git

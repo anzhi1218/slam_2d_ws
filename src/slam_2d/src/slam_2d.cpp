@@ -161,7 +161,6 @@ bool Slam2d::SaveMapCallback(std_srvs::Trigger::Request&, std_srvs::Trigger::Res
 // 单帧 SLAM 主流程
 void Slam2d::ProcessFrame(const ros::Time& timestamp, const Pose2D& predict_pose,
                                 const pcl::PointCloud<pcl::PointXYZ>::Ptr& mpCurrentCloud) {
-  ros::WallTime total_time = ros::WallTime::now();
   Pose2D location_pose;
   Pose2D predicted_pose;
   Pose2D icp_location_pose;
@@ -179,32 +178,21 @@ void Slam2d::ProcessFrame(const ros::Time& timestamp, const Pose2D& predict_pose
     return;
   }
 
-  ros::WallTime t_start_predicted_pose_process = ros::WallTime::now();
   // step 2: 局部坐标系下计算 predicted_pose
   const Pose2D local_delta =
       PredictedProcess::PoseSubtract(predict_pose, last_predict_pose_);
   predicted_pose = PredictedProcess::PoseAdd(last_location_pose_, local_delta);
-  ros::WallTime t_end_predicted_pose_process = ros::WallTime::now();
-  double Predicted_pose_time = (t_end_predicted_pose_process - t_start_predicted_pose_process).toSec() * 1000.0;
 
   // step 3: 按 predicted_pose 将当前帧点云变换到全局坐标系，并取上一帧为止的地图
-  ros::WallTime t_start_transform_point_cloud = ros::WallTime::now();
   const Eigen::Matrix4f predicted_transform =
       PredictedProcess::PoseToMatrix4f(predicted_pose);
   pcl::transformPointCloud(*mpCurrentCloud, *mpCurrentGlobalCloud, predicted_transform);
   const auto grid_map = mapping_->getWholeMapCloud();
-  ros::WallTime t_end_transform_point_cloud = ros::WallTime::now();
-  double Transform_point_cloud_time = (t_end_transform_point_cloud - t_start_transform_point_cloud).toSec() * 1000.0;
 
   // step 3.5: 退化检测（基于雷达系单帧点云）：退化帧直接用里程计预测位姿，不配准、不更新地图
-  ros::WallTime t_start_line_fitting = ros::WallTime::now();
   const bool is_degraded = IsDegradedFrame(*mpCurrentCloud);
-  ros::WallTime t_end_line_fitting = ros::WallTime::now();
-  double Line_fitting_time = (t_end_line_fitting - t_start_line_fitting).toSec() * 1000.0;
 
   double icp_fitness_score = 0.0;
-  double Icp_process_time = 0.0;
-  double Csm_process_time = 0.0;
 
   if (is_degraded) {
     location_pose = predicted_pose;      // 采用里程计（预积分）更新位姿
@@ -213,24 +201,19 @@ void Slam2d::ProcessFrame(const ros::Time& timestamp, const Pose2D& predict_pose
                       "slam_2d: frame %d degraded (fitted lines: %d, valid lines: %d), "
                       "use odometry prediction, skip map update",
                       frame_id_, line_fitting_->getLinesSize(), line_fitting_->getValidLineCount());
-  } else {
+  }
+  else {
     // step 4: ICP 配准
-    ros::WallTime t_start_icp_process = ros::WallTime::now();
     laser_process_->IcpAlignMapFrame(mpCurrentGlobalCloud, grid_map, predicted_pose,
                                      icp_location_pose, icp_fitness_score);
-    ros::WallTime t_end_icp_process = ros::WallTime::now();
-    Icp_process_time = (t_end_icp_process - t_start_icp_process).toSec() * 1000.0;
   }
 
   // step 5: ICP 拟合较差时，用 CSM 粗匹配修正位姿；CSM 无结果时保留 ICP 结果；退化帧跳过
   if (!is_degraded && icp_fitness_score > icp_fitness_score_threshold_) {
-    ros::WallTime t_start_csm_process = ros::WallTime::now();
     Pose2D csm_location_pose_ = predicted_pose;
     const bool csm_ok = laser_process_->CSMCoarseMatch(mpCurrentGlobalCloud, grid_map,
                                                        predicted_pose, csm_location_pose_);
     location_pose = csm_ok ? csm_location_pose_ : icp_location_pose;
-    ros::WallTime t_end_csm_process = ros::WallTime::now();
-    Csm_process_time = (t_end_csm_process - t_start_csm_process).toSec() * 1000.0;
 
     if (csm_ok) {
       ROS_INFO(" CSM coarse match: location_pose: x=%.4f, y=%.4f, yaw=%.2f degree",
@@ -248,40 +231,21 @@ void Slam2d::ProcessFrame(const ros::Time& timestamp, const Pose2D& predict_pose
       PredictedProcess::PoseToMatrix4f(location_pose);
   pcl::transformPointCloud(*mpCurrentCloud, *mpIcpCloud, location_transform);
 
-  // step 7: 更新地图（退化帧跳过，不把该帧写入地图）
-  ros::WallTime t_start_update_grid_map = ros::WallTime::now();
+  // step 7: 更新地图
   if (!is_degraded && !mpIcpCloud->empty())
     mapping_->UpdateGridMap(mpIcpCloud, location_pose);
-  ros::WallTime t_end_update_grid_map = ros::WallTime::now();
-  double Update_grid_map_time = (t_end_update_grid_map - t_start_update_grid_map).toSec() * 1000.0;
 
   // step 8: 发布路径（先验轨迹先对齐到 map 系，便于与预测/估计轨迹对比）
-  ros::WallTime t_start_publish_paths = ros::WallTime::now();
   const Pose2D predict_pose_in_map = PriorToMapFrame(predict_pose);
   predicted_process_->publishPaths(map_frame_, timestamp,
                                   predict_pose_in_map, predicted_pose, location_pose);
-  ros::WallTime t_end_publish_paths = ros::WallTime::now();
-  double Publish_paths_time = (t_end_publish_paths - t_start_publish_paths).toSec() * 1000.0;
 
   // step 9: 发布地图可视化（栅格地图、当前帧点云、ICP点云等）
-  ros::WallTime t_start_publish_map_visualization = ros::WallTime::now();
   mapping_->publishMapVisualization(mpCurrentGlobalCloud, mpIcpCloud, timestamp);
-  ros::WallTime t_end_publish_map_visualization = ros::WallTime::now();
-  double Publish_map_visualization_time = (t_end_publish_map_visualization - t_start_publish_map_visualization).toSec() * 1000.0;
 
   // step 10: 发布 TF
-  ros::WallTime t_start_publish_tf = ros::WallTime::now();
   predicted_process_->publishTf(map_frame_, odom_frame_, base_frame_, timestamp,
                                 location_pose);
-  ros::WallTime t_end_publish_tf = ros::WallTime::now();
-  double Publish_tf_time = (t_end_publish_tf - t_start_publish_tf).toSec() * 1000.0;
-
-  ros::WallTime total_time_end = ros::WallTime::now();
-  double Total_time = (total_time_end - total_time).toSec() * 1000.0;
-
-  ROS_INFO(" || Frame %d:|| total_time: %.2f ms || Predicted_pose_time: %.2f ms || Transform_point_cloud_time: %.2f ms || Line_fitting_time: %.2f ms || Icp_process_time: %.2f ms || Csm_process_time: %.2f ms || Update_grid_map_time: %.2f ms || Publish_paths_time: %.2f ms || Publish_map_visualization_time: %.2f ms || Publish_tf_time: %.2f ms",
-    frame_id_, Total_time, Predicted_pose_time, Transform_point_cloud_time, Line_fitting_time,
-    Icp_process_time, Csm_process_time, Update_grid_map_time, Publish_paths_time, Publish_map_visualization_time, Publish_tf_time);
 
   ROS_INFO(" || Frame %d:|| predict_pose: x=%.4f y=%.4f yaw=%.2f deg || ICP_location_pose: x=%.4f y=%.4f yaw=%.2f deg fit=%.4f || predicted_pose: x=%.4f y=%.4f yaw=%.2f deg || location_pose: x=%.4f y=%.4f yaw=%.2f deg || cloud: %zu grid_map: %zu current_global_cloud: %zu || degraded: %d fitted_lines: %d valid_lines: %d",
     frame_id_, predict_pose.x, predict_pose.y, predict_pose.yaw * 180.0 / M_PI,
