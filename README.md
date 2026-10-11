@@ -1,51 +1,53 @@
 # slam_2d_ws
 
-基于激光雷达与轮式里程计先验位姿的 **2D 激光 SLAM** 工作空间（ROS 1 / catkin）。
+A **2D LiDAR SLAM** workspace (ROS 1 / catkin) that fuses LiDAR scans with wheel-odometry prior poses.
 
-在线订阅 `/scan` 与 `/odom`，用 **ICP + CSM（相关性扫描匹配）** 做帧间配准，
-增量式构建 2D 占据栅格地图，并输出轨迹与 TF。可直接由 `rosbag play`
-回放数据集（`GP-SLAM-2D_dataset`）驱动，也支持接入真实传感器。
+It subscribes to `/scan` and `/odom` online, aligns scans with **ICP + CSM (correlative scan matching)**,
+incrementally builds a 2D occupancy grid map, and publishes trajectories and TF. It can be driven
+directly by replaying a dataset bag (`GP-SLAM-2D_dataset`) with `rosbag play`, or connected to real sensors.
 
-## 功能特性
+## Features
 
-- **在线建图**：激光 `/scan` + 里程计 `/odom` 增量式构图，无需离线数据文件。
-- **里程计预积分**：对 `/odom` 做增量提取、跳变剔除、低通平滑与激光时间对齐，得到与激光
-  严格同步的先验位姿。
-- **ICP 精配准**：当前帧点云与已建地图做 ICP，得到估计位姿。
-- **CSM 粗匹配回退**：ICP 拟合分数较差时用分支搜索做平移/角度粗匹配修正位姿。
-- **占据栅格建图**：每帧按命中/空闲证据更新栅格，短时空闲观测不会立即抹掉稳定墙面。
-- **地图保存**：内置 PGM + YAML 导出，兼容 ROS1 `map_server` 与 Nav2 `nav2_map_server`。
-- **RViz 可视化**：栅格地图、当前帧点云、ICP 点云、先验/预测/估计轨迹。
+- **Online mapping**: incrementally builds the map from `/scan` + `/odom`, with no offline data file.
+- **Odometry pre-integration**: extracts, de-glitches, low-pass filters and time-aligns `/odom` increments
+  to produce a prior pose strictly synchronized with each scan.
+- **ICP fine registration**: aligns the current scan against the map built so far.
+- **CSM coarse-match fallback**: branch-and-bound coarse matching over translation/rotation when the ICP
+  fitness score is poor.
+- **Occupancy grid mapping**: per-frame hit/miss evidence; brief free-space observations do not
+  immediately erase stable walls.
+- **Map saving**: built-in PGM + YAML export, compatible with ROS 1 `map_server` and Nav2 `nav2_map_server`.
+- **RViz visualization**: grid map, current scan cloud, ICP cloud, and prior/predicted/estimated trajectories.
 
-## 目录结构
+## Directory layout
 
 ```
 slam_2d_ws/
 ├── src/
-│   └── slam_2d/                 # slam_2d 功能包
-│       ├── include/             # 头文件（frame.h / odom_process.h / ...）
-│       ├── src/                 # 源码（main.cpp / slam_2d.cpp / mapping.cpp / ...）
+│   └── slam_2d/                 # the slam_2d package
+│       ├── include/             # headers (frame.h / odom_process.h / ...)
+│       ├── src/                 # sources (main.cpp / slam_2d.cpp / mapping.cpp / ...)
 │       ├── launch/              # slam_2d.launch
-│       ├── config/              # params.yaml、slam_2d.rviz
-│       ├── maps/                # 保存的栅格地图（map.pgm / map.yaml）
-│       ├── data/                # 数据集（子模块 GP-SLAM-2D_dataset）
+│       ├── config/              # params.yaml, slam_2d.rviz
+│       ├── maps/                # saved grid maps (map.pgm / map.yaml)
+│       ├── data/                # dataset (submodule GP-SLAM-2D_dataset)
 │       ├── CMakeLists.txt
 │       └── package.xml
-├── build/  devel/  install/     # catkin 编译产物（已忽略）
+├── build/  devel/  install/     # catkin build artifacts (git-ignored)
 └── README.md
 ```
 
-功能包的详细设计、话题与参数说明见 [src/slam_2d/README.md](src/slam_2d/README.md)。
+For the package-level design, topics and parameters, see [src/slam_2d/README.md](src/slam_2d/README.md).
 
-## 依赖
+## Dependencies
 
-- Ubuntu 20.04 + **ROS Noetic**（`roscpp`、`nav_msgs`、`sensor_msgs`、`geometry_msgs`、
-  `std_srvs`、`tf`、`pcl_conversions`、`roslib`）
-- **PCL**（`common`、`registration`）
+- Ubuntu 20.04 + **ROS Noetic** (`roscpp`, `nav_msgs`, `sensor_msgs`, `geometry_msgs`,
+  `std_srvs`, `tf`, `pcl_conversions`, `roslib`)
+- **PCL** (`common`, `registration`)
 - **Eigen3**
-- 运行可视化需要 `rviz`；回放数据需要 `rosbag`
+- `rviz` for visualization; `rosbag` for replaying bags
 
-## 编译
+## Build
 
 ```bash
 cd ~/slam_2d_ws
@@ -54,73 +56,73 @@ catkin_make
 source devel/setup.bash
 ```
 
-## 运行
+## Run
 
-### 方式一：launch 启动节点 + 另开终端播放 bag（推荐）
+### Option 1: launch the node, play the bag in another terminal (recommended)
 
 ```bash
-# 终端1：启动 SLAM 节点与 RViz
+# Terminal 1: start the SLAM node and RViz
 roslaunch slam_2d slam_2d.launch
 
-# 终端2：播放数据包（-r 0.2 为 0.2 倍速，建议慢速回放以跟上处理速度）
+# Terminal 2: play the bag (-r 0.2 = 0.2x speed; slow replay is recommended)
 rosbag play -r 0.2 ~/slam_2d_ws/src/slam_2d/data/GP-SLAM-2D_dataset/Yongqian_data_2019-05-29-13-12-39.bag
 ```
 
-不启动 RViz：`roslaunch slam_2d slam_2d.launch use_rviz:=false`
+Without RViz: `roslaunch slam_2d slam_2d.launch use_rviz:=false`
 
-### 方式二：launch 直接把 bag 一起启动
+### Option 2: launch the node together with the bag
 
 ```bash
 roslaunch slam_2d slam_2d.launch use_bag:=true
 roslaunch slam_2d slam_2d.launch use_bag:=true rate:=0.2 bag_file:=/path/to/your.bag
 ```
 
-### 保存地图
+### Save the map
 
-- 运行中随时保存：`rosservice call /slam_2d/save_map`
-- 退出（Ctrl-C）自动保存：由参数 `save_map_on_shutdown` 控制（默认 `true`）
+- Save at any time while running: `rosservice call /slam_2d/save_map`
+- Auto-save on exit (Ctrl-C): controlled by `save_map_on_shutdown` (default `true`)
 
-默认保存到 `src/slam_2d/maps/map.pgm` 与 `map.yaml`。
+By default the map is written to `src/slam_2d/maps/map.pgm` and `map.yaml`.
 
-## 主要话题
+## Topics
 
-| 话题 | 类型 | 说明 |
+| Topic | Type | Description |
 | --- | --- | --- |
-| `/map` | `nav_msgs/OccupancyGrid` | 占据栅格地图 |
-| `/slam_2d/grid_map_cloud` | `sensor_msgs/PointCloud2` | 地图点云 |
-| `/slam_2d/current_cloud` | `sensor_msgs/PointCloud2` | 当前帧先验位姿下的点云 |
-| `/slam_2d/icp_cloud` | `sensor_msgs/PointCloud2` | 匹配后位姿下的点云 |
-| `/slam_2d/predict_path` | `nav_msgs/Path` | 先验位姿（里程计）轨迹 |
-| `/slam_2d/predicted_path` | `nav_msgs/Path` | 预测位姿轨迹 |
-| `/slam_2d/location_path` | `nav_msgs/Path` | ICP/CSM 估计位姿轨迹 |
+| `/map` | `nav_msgs/OccupancyGrid` | occupancy grid map |
+| `/slam_2d/grid_map_cloud` | `sensor_msgs/PointCloud2` | map point cloud |
+| `/slam_2d/current_cloud` | `sensor_msgs/PointCloud2` | current scan in the prior pose |
+| `/slam_2d/icp_cloud` | `sensor_msgs/PointCloud2` | current scan in the matched pose |
+| `/slam_2d/predict_path` | `nav_msgs/Path` | prior (odometry) trajectory |
+| `/slam_2d/predicted_path` | `nav_msgs/Path` | predicted trajectory |
+| `/slam_2d/location_path` | `nav_msgs/Path` | ICP/CSM estimated trajectory |
 | `/tf` | `tf2_msgs/TFMessage` | `map -> odom -> base_link` |
 
-服务：`/slam_2d/save_map`（`std_srvs/Trigger`）。
+Service: `/slam_2d/save_map` (`std_srvs/Trigger`).
 
-## 处理流程（每帧）
+## Processing pipeline (per frame)
 
-1. 预积分先验位姿：取与激光时间对齐的 `predict_pose`；
-2. 预测位姿：里程计相邻帧增量叠加到上一帧最终位姿，得到 `predicted_pose`；
-3. 当前帧点云按 `predicted_pose` 变换到全局坐标系；
-4. 与已建地图做 ICP，拟合分数较差时用 CSM 粗匹配修正位姿；
-5. 用最终位姿把点云加入栅格地图，发布地图/点云/路径/TF；
-6. 首帧仅初始化：以第一帧位置为地图原点，不建图。
+1. Prior pose: take the `predict_pose` time-aligned with the scan;
+2. Predicted pose: accumulate the odometry increment onto the previous final pose to get `predicted_pose`;
+3. Transform the current scan into the global frame using `predicted_pose`;
+4. Run ICP against the map built so far; fall back to CSM coarse matching when the fitness score is poor;
+5. Insert the cloud into the grid map at the final pose, and publish map/clouds/paths/TF;
+6. First frame: initialization only — the first pose becomes the map origin, no mapping.
 
-## 数据集
+## Dataset
 
-`src/slam_2d/data/GP-SLAM-2D_dataset/`（来自 RuanJY/GP-SLAM-2D_dataset）：
+`src/slam_2d/data/GP-SLAM-2D_dataset/` (from RuanJY/GP-SLAM-2D_dataset):
 
-| 文件 | 说明 |
+| File | Description |
 | --- | --- |
-| `Yongqian_data_2019-05-29-13-12-39.bag` | 永谦学生活动中心，214s，`/scan` 6414 帧、`/odom` 8466 条 |
-| `ChouYeiChing_data_2019-05-29-13-17-41.bag` | 周亦卿科技大楼，约 303s，`/scan` 9098 帧、`/odom` 12563 条 |
+| `Yongqian_data_2019-05-29-13-12-39.bag` | Yongqian Student Activity Center, 214 s, 6414 `/scan` frames, 8466 `/odom` messages |
+| `ChouYeiChing_data_2019-05-29-13-17-41.bag` | Chou Yei Ching Building, ~303 s, 9098 `/scan` frames, 12563 `/odom` messages |
 
-子模块初始化：
+Initialize the submodule:
 
 ```bash
 git submodule update --init --recursive
 ```
 
-## 许可
+## License
 
-见 `src/slam_2d/package.xml`（BSD / Apache 2.0）。
+See `src/slam_2d/package.xml` (BSD / Apache 2.0).
