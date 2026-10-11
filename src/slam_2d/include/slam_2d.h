@@ -17,7 +17,6 @@
 #include "predicted_process.h"
 #include "laser_process.h"
 #include "mapping.h"
-#include "linear_fitting.h"
 
 namespace slam_2d {
 
@@ -54,9 +53,6 @@ class Slam2d {
   /// 把 odom 系下的先验位姿变换到 map 系（以首帧位置为原点、首帧朝向为 x 轴）
   Pose2D PriorToMapFrame(const Pose2D& prior_pose) const;
 
-  /// 退化检测：对雷达系单帧点云做直线拟合（可用直线不足或方向过于一致视为退化）
-  bool IsDegradedFrame(const pcl::PointCloud<pcl::PointXYZ>& cloud);
-
   /// 保存地图服务回调：rosservice call /slam_2d/save_map
   bool SaveMapCallback(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
 
@@ -82,8 +78,6 @@ class Slam2d {
   int scan_queue_size_;
   int odom_queue_size_;
   double icp_fitness_score_threshold_;  ///< ICP 拟合分数大于该值时用 CSM 粗匹配
-  int line_fitting_min_points_ = 5;              ///< 退化检测：聚类/拟合最少点数
-  int line_fitting_line_length_threshold_ = 10;  ///< 退化检测：计为有效直线的最少点数
 
   /// 里程计（先验位姿）预处理：预积分 + 时间对齐
   std::unique_ptr<OdomProcess> odom_process_;
@@ -91,7 +85,6 @@ class Slam2d {
   std::unique_ptr<PredictedProcess> predicted_process_;
   std::unique_ptr<LaserProcess> laser_process_;
   std::unique_ptr<Mapping> mapping_;
-  std::unique_ptr<LineFitting> line_fitting_;
 
   /// 地图保存：服务 + 退出自动保存（PGM + YAML）
   ros::ServiceServer save_map_srv_;

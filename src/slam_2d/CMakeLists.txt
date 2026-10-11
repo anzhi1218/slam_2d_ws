@@ -18,7 +18,6 @@ add_executable(slam_2d
   src/predicted_process.cpp
   src/laser_process.cpp
   src/mapping.cpp
-  src/linear_fitting.cpp
 )
 target_link_libraries(slam_2d ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 if(catkin_EXPORTED_TARGETS)

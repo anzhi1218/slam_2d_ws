@@ -10,7 +10,6 @@
 
 #include <cmath>
 #include <cstddef>
-#include <vector>
 
 #include <ros/ros.h>
 #include <ros/package.h>
@@ -31,14 +30,11 @@ Slam2d::Slam2d()
   private_nh_.param<int>("scan_queue_size", scan_queue_size_, 30);
   private_nh_.param<int>("odom_queue_size", odom_queue_size_, 100);
   private_nh_.param<double>("icp_fitness_score_threshold", icp_fitness_score_threshold_, 0.001);
-  private_nh_.param<int>("line_fitting_min_points", line_fitting_min_points_, 5);
-  private_nh_.param<int>("line_fitting_line_length_threshold", line_fitting_line_length_threshold_, 10);
 
   odom_process_ = std::make_unique<OdomProcess>(private_nh_);
   predicted_process_ = std::make_unique<PredictedProcess>(private_nh_);
   laser_process_ = std::make_unique<LaserProcess>(private_nh_);
   mapping_ = std::make_unique<Mapping>(node_, private_nh_);
-  line_fitting_ = std::make_unique<LineFitting>(line_fitting_min_points_, line_fitting_line_length_threshold_);
   mpCurrentGlobalCloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
 
   // 地图保存：默认保存到 <本包目录>/maps/map（参数 map_save_file 可改，含文件名、不带扩展名）
@@ -121,17 +117,6 @@ Pose2D Slam2d::PriorToMapFrame(const Pose2D& prior_pose) const {
   return PredictedProcess::PoseSubtract(prior_pose, first_predict_pose_);
 }
 
-// 退化检测：把雷达系单帧点云送入直线拟合模块，可用直线不足或方向过于一致则视为退化
-bool Slam2d::IsDegradedFrame(const pcl::PointCloud<pcl::PointXYZ>& cloud) {
-  std::vector<Eigen::Vector2f> scan_points;
-  scan_points.reserve(cloud.size());
-  for (const pcl::PointXYZ& pt : cloud.points) {
-    scan_points.emplace_back(pt.x, pt.y);
-  }
-  line_fitting_->runLineExtraction(scan_points);
-  return line_fitting_->hasDegradation();
-}
-
 // 把当前地图保存为 PGM + YAML（导航可直接使用）
 bool Slam2d::SaveMapToFile() {
   if (map_save_file_.empty()) {
@@ -189,27 +174,13 @@ void Slam2d::ProcessFrame(const ros::Time& timestamp, const Pose2D& predict_pose
   pcl::transformPointCloud(*mpCurrentCloud, *mpCurrentGlobalCloud, predicted_transform);
   const auto grid_map = mapping_->getWholeMapCloud();
 
-  // step 3.5: 退化检测（基于雷达系单帧点云）：退化帧直接用里程计预测位姿，不配准、不更新地图
-  const bool is_degraded = IsDegradedFrame(*mpCurrentCloud);
-
+  // step 4: ICP 配准
   double icp_fitness_score = 0.0;
+  laser_process_->IcpAlignMapFrame(mpCurrentGlobalCloud, grid_map, predicted_pose,
+                                   icp_location_pose, icp_fitness_score);
 
-  if (is_degraded) {
-    location_pose = predicted_pose;      // 采用里程计（预积分）更新位姿
-    icp_location_pose = predicted_pose;  // 保持日志/流程一致
-    ROS_WARN_THROTTLE(1.0,
-                      "slam_2d: frame %d degraded (fitted lines: %d, valid lines: %d), "
-                      "use odometry prediction, skip map update",
-                      frame_id_, line_fitting_->getLinesSize(), line_fitting_->getValidLineCount());
-  }
-  else {
-    // step 4: ICP 配准
-    laser_process_->IcpAlignMapFrame(mpCurrentGlobalCloud, grid_map, predicted_pose,
-                                     icp_location_pose, icp_fitness_score);
-  }
-
-  // step 5: ICP 拟合较差时，用 CSM 粗匹配修正位姿；CSM 无结果时保留 ICP 结果；退化帧跳过
-  if (!is_degraded && icp_fitness_score > icp_fitness_score_threshold_) {
+  // step 5: ICP 拟合较差时，用 CSM 粗匹配修正位姿；CSM 无结果时保留 ICP 结果
+  if (icp_fitness_score > icp_fitness_score_threshold_) {
     Pose2D csm_location_pose_ = predicted_pose;
     const bool csm_ok = laser_process_->CSMCoarseMatch(mpCurrentGlobalCloud, grid_map,
                                                        predicted_pose, csm_location_pose_);
@@ -232,7 +203,7 @@ void Slam2d::ProcessFrame(const ros::Time& timestamp, const Pose2D& predict_pose
   pcl::transformPointCloud(*mpCurrentCloud, *mpIcpCloud, location_transform);
 
   // step 7: 更新地图
-  if (!is_degraded && !mpIcpCloud->empty())
+  if (!mpIcpCloud->empty())
     mapping_->UpdateGridMap(mpIcpCloud, location_pose);
 
   // step 8: 发布路径（先验轨迹先对齐到 map 系，便于与预测/估计轨迹对比）
@@ -247,13 +218,12 @@ void Slam2d::ProcessFrame(const ros::Time& timestamp, const Pose2D& predict_pose
   predicted_process_->publishTf(map_frame_, odom_frame_, base_frame_, timestamp,
                                 location_pose);
 
-  ROS_INFO(" || Frame %d:|| predict_pose: x=%.4f y=%.4f yaw=%.2f deg || ICP_location_pose: x=%.4f y=%.4f yaw=%.2f deg fit=%.4f || predicted_pose: x=%.4f y=%.4f yaw=%.2f deg || location_pose: x=%.4f y=%.4f yaw=%.2f deg || cloud: %zu grid_map: %zu current_global_cloud: %zu || degraded: %d fitted_lines: %d valid_lines: %d",
+  ROS_INFO(" || Frame %d:|| predict_pose: x=%.4f y=%.4f yaw=%.2f deg || ICP_location_pose: x=%.4f y=%.4f yaw=%.2f deg fit=%.4f || predicted_pose: x=%.4f y=%.4f yaw=%.2f deg || location_pose: x=%.4f y=%.4f yaw=%.2f deg || cloud: %zu grid_map: %zu current_global_cloud: %zu",
     frame_id_, predict_pose.x, predict_pose.y, predict_pose.yaw * 180.0 / M_PI,
     icp_location_pose.x, icp_location_pose.y, icp_location_pose.yaw * 180.0 / M_PI, icp_fitness_score,
     predicted_pose.x, predicted_pose.y, predicted_pose.yaw * 180.0 / M_PI,
     location_pose.x, location_pose.y, location_pose.yaw * 180.0 / M_PI,
-    mpCurrentCloud->size(), grid_map->size(), mpCurrentGlobalCloud->size(),
-    is_degraded ? 1 : 0, line_fitting_->getLinesSize(), line_fitting_->getValidLineCount());
+    mpCurrentCloud->size(), grid_map->size(), mpCurrentGlobalCloud->size());
 
   // step 11: 更新上一帧状态
   last_predict_pose_ = predict_pose;

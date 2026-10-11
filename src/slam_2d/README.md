@@ -119,7 +119,6 @@ rosservice call /slam_2d/save_map
 | `icp_max_correspondence_dist` | 0.3 | ICP 最大对应点距离 (m) |
 | `icp_fitness_score_threshold` | 0.001 | 拟合分数大于该值时触发 CSM 粗匹配；调大（如 0.05~0.3）可减少 CSM、加快处理 |
 | `translation_search_range_cells` / `translation_search_step_cells` | 2 / 0.02 | CSM 平移搜索半径（格数）/步长（m） |
-| `line_fitting_min_points` / `line_fitting_line_length_threshold` | 5 / 10 | 退化检测：聚类与有效直线的最少点数 |
 | `map_save_file` | 空（= `<包目录>/maps/map`） | 地图保存路径前缀（不含扩展名） |
 | `save_map_on_shutdown` | true | 退出时自动保存地图 |
 | `map_save_trim_margin` | 1.0 | 地图保存裁剪外扩边距 (m) |
@@ -130,7 +129,6 @@ rosservice call /slam_2d/save_map
 1. 预积分先验位姿：取与激光时间对齐的 `predict_pose`（OdomProcess 插值结果）；
 2. 预测位姿：里程计相邻帧增量叠加到上一帧最终位姿，得到 `predicted_pose`；
 3. 当前帧点云按 `predicted_pose` 变换到全局坐标系；
-4. 退化检测（直线拟合）：退化帧直接用里程计预测位姿，跳过 ICP/CSM 与地图更新；
-5. 非退化帧：与上一帧为止的地图做 ICP，拟合分数较差时用 CSM 粗匹配（分支搜索）修正位姿；
-6. 用最终位姿把点云加入栅格地图（退化帧跳过），并发布地图/点云/路径/TF；
-7. 首帧仅初始化：以第一帧位置为地图原点，不建图。
+4. 与上一帧为止的地图做 ICP，拟合分数较差时用 CSM 粗匹配（分支搜索）修正位姿；
+5. 用最终位姿把点云加入栅格地图，并发布地图/点云/路径/TF；
+6. 首帧仅初始化：以第一帧位置为地图原点，不建图。

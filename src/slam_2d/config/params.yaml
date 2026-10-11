@@ -41,10 +41,6 @@ translation_search_step_cells: 0.02          # 平移步长(m)，参数名保留
 angular_step_deg: 0.5             # yaw 搜索步长 (deg)
 yaw_search_range_deg: 2  # yaw 搜索半窗 (deg)
 
-# 退化检测（直线拟合）
-line_fitting_min_points: 5             # 退化检测：聚类/拟合最少点数
-line_fitting_line_length_threshold: 10 # 退化检测：计为有效直线的最少点数（有效直线不足 2 条视为退化）
-
 # 地图保存（PGM + YAML，兼容 ROS1 map_server 与 Nav2 nav2_map_server）
 map_save_file: ""                # 保存路径前缀（不含扩展名）；空 = <本包目录>/maps/map
 save_map_on_shutdown: true       # Ctrl-C 退出节点时自动保存地图
