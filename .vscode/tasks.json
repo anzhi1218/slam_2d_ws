@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "sandbox-probe",
+			"type": "shell",
+			"command": "echo TASK_RUNS_OK && pwd",
+			"isBackground": false
+		}
+	]
+}
